@@ -131,6 +131,17 @@ describe('PowerMonitorService', () => {
       expect(mockShutdownHandlerOn).toHaveBeenCalledWith('shutdown', expect.any(Function))
       expect((service as any)._disposables.length).toBeGreaterThan(0)
     })
+
+    it('should skip Windows shutdown handler when native module is unavailable', async () => {
+      const service = createService()
+      vi.spyOn(service as any, 'loadWindowsShutdownHandler').mockResolvedValue(null)
+
+      await (service as any).onInit()
+
+      expect(mockSetWindowHandle).not.toHaveBeenCalled()
+      expect(mockShutdownHandlerOn).not.toHaveBeenCalled()
+      expect((service as any)._disposables).toHaveLength(0)
+    })
   })
 
   describe('registerShutdownHandler', () => {

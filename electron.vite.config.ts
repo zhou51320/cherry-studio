@@ -15,6 +15,12 @@ const visualizerPlugin = (type: 'renderer' | 'main') => {
 
 const isDev = process.env.NODE_ENV === 'development'
 const isProd = process.env.NODE_ENV === 'production'
+const mainTargetPlatform = process.env.CHERRY_STUDIO_TARGET_PLATFORM
+const mainTargetArch = process.env.CHERRY_STUDIO_TARGET_ARCH
+const mainDefine = {
+  ...(mainTargetPlatform ? { 'process.platform': JSON.stringify(mainTargetPlatform) } : {}),
+  ...(mainTargetArch ? { 'process.arch': JSON.stringify(mainTargetArch) } : {})
+}
 
 // Bundle/externalize split for the main process: everything in `dependencies` is
 // marked `external` below (kept in node_modules of the packaged app), and everything
@@ -32,6 +38,7 @@ const mainExternalDependencies = Object.keys(pkg.dependencies).filter(
 export default defineConfig({
   main: {
     plugins: [...visualizerPlugin('main')],
+    define: mainDefine,
     resolve: {
       alias: {
         '@main': resolve('src/main'),

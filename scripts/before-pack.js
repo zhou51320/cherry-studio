@@ -64,6 +64,16 @@ exports.default = async function (context) {
   const arch = context.arch === Arch.arm64 ? 'arm64' : 'x64'
   const platformName = context.packager.platform.name
   const platform = platformToArch[platformName]
+  const win7Build = process.env.CHERRY_STUDIO_WIN7 === '1'
+
+  if (win7Build) {
+    const asarUnpack = context.packager.config.asarUnpack ?? []
+    context.packager.config.asarUnpack = [
+      ...asarUnpack,
+      'node_modules/selection-hook/prebuilds/win32-x64/**',
+      'node_modules/@paymoapp/electron-shutdown-handler/build/Release/**'
+    ]
+  }
 
   // Download rtk binary for the target platform
   try {
@@ -116,6 +126,10 @@ exports.default = async function (context) {
     const electronBuilderConfig = parse(fs.readFileSync(electronBuilderConfigPath, 'utf-8'))
     let filters = electronBuilderConfig.files
 
+    if (win7Build) {
+      filters = filters.filter((filter) => filter !== '!node_modules/selection-hook/prebuilds/**/*')
+    }
+
     // add filters for other architectures (exclude them)
     filters.push(...packagesToExclude)
 
@@ -148,10 +162,25 @@ exports.default = async function (context) {
   const excludeRtkFilters = allRtkPlatforms
     .filter((p) => p !== currentPlatformKey)
     .map((p) => '!resources/binaries/' + p + '/**')
+  const selectionHookPrebuildFilters = win7Build
+    ? ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64']
+        .filter((p) => p !== `${platform}-${arch}`)
+        .map((p) => '!node_modules/selection-hook/prebuilds/' + p + '/**')
+    : []
 
   if (context.arch === Arch.arm64) {
-    await excludePackages([...arm64ExcludePackages, ...excludeRipgrepFilters, ...excludeRtkFilters])
+    await excludePackages([
+      ...arm64ExcludePackages,
+      ...excludeRipgrepFilters,
+      ...excludeRtkFilters,
+      ...selectionHookPrebuildFilters
+    ])
   } else {
-    await excludePackages([...x64ExcludePackages, ...excludeRipgrepFilters, ...excludeRtkFilters])
+    await excludePackages([
+      ...x64ExcludePackages,
+      ...excludeRipgrepFilters,
+      ...excludeRtkFilters,
+      ...selectionHookPrebuildFilters
+    ])
   }
 }

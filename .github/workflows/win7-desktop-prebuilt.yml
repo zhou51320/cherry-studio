@@ -1,0 +1,106 @@
+name: Win7 Desktop Prebuilt
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+  WIN7_ELECTRON_VERSION: 40.2.0
+  WIN7_ELECTRON_URL: https://github.com/e3kskoy7wqk/Electron-for-windows-7/releases/download/v40.2.0/dist.zip
+  WIN7_ELECTRON_SHA256: ed4ebb022624ae38f764fcfc1dc1ce30fe2145298975d4c90e8d95412deeadea
+
+jobs:
+  win7-desktop:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install
+
+      - name: Download Win7 Electron runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path runtime | Out-Null
+          Invoke-WebRequest -Uri $env:WIN7_ELECTRON_URL -OutFile runtime\electron-win7.zip
+          $hash = (Get-FileHash -Algorithm SHA256 runtime\electron-win7.zip).Hash.ToLower()
+          if ($hash -ne $env:WIN7_ELECTRON_SHA256) {
+            throw "Unexpected Win7 Electron SHA256: $hash"
+          }
+          Expand-Archive -Path runtime\electron-win7.zip -DestinationPath runtime\electron-win7 -Force
+
+      - name: Build Win7 desktop assets
+        shell: pwsh
+        run: pnpm build:win7
+        env:
+          MAIN_VITE_CHERRYAI_CLIENT_SECRET: ${{ secrets.MAIN_VITE_CHERRYAI_CLIENT_SECRET }}
+          MAIN_VITE_MINERU_API_KEY: ${{ secrets.MAIN_VITE_MINERU_API_KEY }}
+          RENDERER_VITE_AIHUBMIX_SECRET: ${{ secrets.RENDERER_VITE_AIHUBMIX_SECRET }}
+          RENDERER_VITE_PPIO_APP_SECRET: ${{ secrets.RENDERER_VITE_PPIO_APP_SECRET }}
+
+      - name: Package Win7 desktop
+        shell: pwsh
+        run: pnpm package:win7
+        env:
+          CHERRY_STUDIO_WIN7_ELECTRON_DIST: ${{ github.workspace }}\runtime\electron-win7
+          CHERRY_STUDIO_WIN7_STRICT_NATIVE: "1"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write runtime provenance report
+        shell: pwsh
+        run: |
+          pnpm report:win7-runtime "$env:GITHUB_WORKSPACE\runtime\electron-win7" --out dist/win7/prebuilt-runtime
+          pnpm report:win7-runtime dist/win7/win-unpacked --compare "$env:GITHUB_WORKSPACE\runtime\electron-win7" --out dist/win7/prebuilt-runtime-comparison
+
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          cd dist\win7
+          Get-ChildItem -Recurse -File | ForEach-Object {
+            $relative = Resolve-Path -Relative $_.FullName
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$hash  $relative" | Out-File -FilePath SHA256SUMS.txt -Append -Encoding utf8
+          }
+          Get-Content SHA256SUMS.txt
+
+      - name: Upload Win7 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cherry-studio-win7-prebuilt-electron
+          path: |
+            dist/win7/win-unpacked/**
+            dist/win7/prebuilt-runtime.*
+            dist/win7/prebuilt-runtime-comparison.*
+            dist/win7/SHA256SUMS.txt
+          retention-days: 14
+          compression-level: 8
