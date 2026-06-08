@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 
+const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const env = {
   ...process.env,
   CHERRY_STUDIO_TARGET_PLATFORM: 'win32',
@@ -10,9 +11,14 @@ const env = {
 
 console.log('Building Win7 desktop assets for win32/x64')
 
-const child = spawn('pnpm', ['build'], {
+const child = spawn(pnpmCommand, ['build'], {
   env,
   stdio: 'inherit'
+})
+
+child.on('error', (error) => {
+  console.error(error)
+  process.exit(1)
 })
 
 child.on('exit', (code, signal) => {
