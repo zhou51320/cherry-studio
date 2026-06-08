@@ -17,7 +17,7 @@ import path from 'node:path'
 const require = createRequire(import.meta.url)
 const electronVersion = process.env.CHERRY_STUDIO_WIN7_ELECTRON_VERSION ?? '40.2.0'
 const strictNativeVerification = process.env.CHERRY_STUDIO_WIN7_STRICT_NATIVE === '1'
-const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const useShell = process.platform === 'win32'
 let stagedElectronDist: string | undefined
 const electronDist = process.env.CHERRY_STUDIO_WIN7_ELECTRON_DIST
   ? normalizeElectronDist(process.env.CHERRY_STUDIO_WIN7_ELECTRON_DIST)
@@ -62,7 +62,7 @@ async function main() {
   console.log(`Packaging Win7 desktop build with Electron ${electronVersion}`)
   if (electronDist) console.log(`Using Electron dist: ${electronDist}`)
 
-  await run(pnpmCommand, builderArgs, env)
+  await run('pnpm', builderArgs, env)
   await applyCherryIcon()
   await verifyWin7Package()
 }
@@ -192,7 +192,7 @@ function walk(dir: string): string[] {
 
 async function run(command: string, args: string[], env: NodeJS.ProcessEnv) {
   const exitCode = await new Promise<number>((resolve) => {
-    const child = spawn(command, args, { env, stdio: 'inherit' })
+    const child = spawn(command, args, { env, shell: useShell, stdio: 'inherit' })
     child.on('error', (error) => {
       console.error(error)
       resolve(1)
