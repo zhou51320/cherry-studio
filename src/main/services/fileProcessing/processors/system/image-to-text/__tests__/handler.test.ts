@@ -6,7 +6,8 @@ import { mockMainLoggerService } from '../../../../../../../../tests/__mocks__/M
 
 vi.mock('@main/core/platform', () => ({
   isLinux: false,
-  isWin: true
+  isWin: true,
+  isWin7: false
 }))
 
 vi.mock('@napi-rs/system-ocr', () => ({

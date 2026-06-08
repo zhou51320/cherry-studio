@@ -5,6 +5,16 @@ const path = require('path')
 const { parse, stringify } = require('yaml')
 
 const workspaceConfigPath = path.join(__dirname, '..', 'pnpm-workspace.yaml')
+const win7LibsqlPatchPath = path.join(
+  __dirname,
+  '..',
+  'src',
+  'patch',
+  'windows7',
+  '@libsql',
+  'win32-x64-msvc',
+  'index.node'
+)
 
 // if you want to add new prebuild binaries packages with different architectures, you can add them here
 // please add to allX64 and allArm64 from pnpm-lock.yaml
@@ -120,6 +130,10 @@ exports.default = async function (context) {
 
   await downloadPackages()
 
+  if (win7Build && platform === 'win32' && arch === 'x64') {
+    applyWin7LibsqlPatch()
+  }
+
   const excludePackages = async (packagesToExclude) => {
     // 从项目根目录的 electron-builder.yml 读取 files 配置，避免多次覆盖配置导致出错
     const electronBuilderConfigPath = path.join(__dirname, '..', 'electron-builder.yml')
@@ -183,4 +197,76 @@ exports.default = async function (context) {
       ...selectionHookPrebuildFilters
     ])
   }
+}
+
+function applyWin7LibsqlPatch() {
+  if (!fs.existsSync(win7LibsqlPatchPath)) {
+    throw new Error(`Win7 libsql patch is missing: ${win7LibsqlPatchPath}`)
+  }
+
+  const nodeModulesPath = path.join(__dirname, '..', 'node_modules')
+  const patchedTargets = []
+
+  for (const packageDir of findLibsqlWin32PackageDirs(nodeModulesPath)) {
+    const target = path.join(packageDir, 'index.node')
+    fs.copyFileSync(win7LibsqlPatchPath, target)
+    patchedTargets.push(target)
+  }
+
+  if (!patchedTargets.length) {
+    throw new Error('Win7 libsql patch failed; no @libsql/win32-x64-msvc package directories were found')
+  }
+
+  console.log(`[Before Pack] Applied Win7 libsql patch to ${patchedTargets.length} package(s)`)
+  for (const target of patchedTargets) {
+    console.log(`[Before Pack] Patched ${target}`)
+  }
+}
+
+function findLibsqlWin32PackageDirs(root) {
+  const result = []
+  const seen = new Set()
+
+  const visit = (dir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+
+      const fullPath = path.join(dir, entry.name)
+      let realPath
+      try {
+        realPath = fs.realpathSync(fullPath)
+      } catch {
+        continue
+      }
+      if (seen.has(realPath)) continue
+      seen.add(realPath)
+
+      if (entry.name === 'win32-x64-msvc' && path.basename(path.dirname(realPath)) === '@libsql') {
+        if (fs.existsSync(path.join(realPath, 'index.node'))) {
+          result.push(realPath)
+        }
+        continue
+      }
+
+      if (
+        entry.name === '.cache' ||
+        entry.name === '.bin' ||
+        (entry.name !== '.pnpm' && !entry.name.startsWith('@') && dir.endsWith(`${path.sep}node_modules`))
+      ) {
+        continue
+      }
+
+      visit(realPath)
+    }
+  }
+
+  visit(root)
+  return result
 }

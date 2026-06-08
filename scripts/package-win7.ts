@@ -49,6 +49,86 @@ const builderArgs = [
 
 if (electronDist) builderArgs.push(`--config.electronDist=${electronDist}`)
 
+type Win7NativeDecision = {
+  match: string
+  decision: 'patched' | 'disabled-on-win7' | 'lazy-loaded-risk' | 'lazy-loaded'
+  note: string
+}
+
+type PeImport = {
+  dll: string
+  name: string
+}
+
+type PeImports = {
+  dlls: Set<string>
+  functions: Set<string>
+  imports: PeImport[]
+}
+
+type NativeAuditEntry = {
+  file: string
+  format: 'pe' | 'non-pe'
+  riskyImports: PeImport[]
+  decision: string
+  note?: string
+}
+
+const win7UnsupportedFunctions = new Set([
+  'CreateFile2',
+  'CreatePseudoConsole',
+  'GetSystemTimePreciseAsFileTime',
+  'ProcessPrng',
+  'WaitOnAddress',
+  'WakeByAddressAll',
+  'WakeByAddressSingle'
+])
+
+const win7UnsupportedDllPrefixes = [
+  'api-ms-win-core-synch-l1-2-0',
+  'api-ms-win-core-winrt',
+  'api-ms-win-core-winrt-error',
+  'bcryptprimitives'
+]
+
+const nativeAuditDecisions: Win7NativeDecision[] = [
+  {
+    match: 'node_modules/@libsql/win32-x64-msvc/index.node',
+    decision: 'patched',
+    note: 'Win7 package replaces the official libsql native addon with src/patch/windows7/@libsql/win32-x64-msvc/index.node.'
+  },
+  {
+    match: 'node_modules/libsql/node_modules/@libsql/win32-x64-msvc/index.node',
+    decision: 'patched',
+    note: 'Nested libsql native addon is also replaced with the Win7-compatible patch before packaging.'
+  },
+  {
+    match: 'node_modules/@napi-rs/system-ocr-win32-x64-msvc/system-ocr.win32-x64-msvc.node',
+    decision: 'disabled-on-win7',
+    note: 'System OCR is not registered on Windows 7 and the native module is dynamically imported only when used.'
+  },
+  {
+    match: 'node_modules/@napi-rs/canvas-win32-x64-msvc/skia.win32-x64-msvc.node',
+    decision: 'lazy-loaded-risk',
+    note: 'Canvas is not required for startup; keep as a documented Win7 optional-feature risk until replaced or disabled.'
+  },
+  {
+    match: 'node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node',
+    decision: 'disabled-on-win7',
+    note: 'Sharp-backed OCR image preprocessing is skipped on Windows 7 before the native module is imported.'
+  },
+  {
+    match: 'node_modules/selection-hook/prebuilds/win32-x64/selection-hook.node',
+    decision: 'lazy-loaded',
+    note: 'Selection hook remains lazy-loaded and is not required for startup.'
+  },
+  {
+    match: 'node_modules/@paymoapp/electron-shutdown-handler/build/Release/PaymoWinShutdownHandler.node',
+    decision: 'disabled-on-win7',
+    note: 'Windows shutdown hook loading is skipped on Windows 7 before the native module is imported.'
+  }
+]
+
 main().catch((error) => {
   console.error(error)
   process.exit(1)
@@ -148,6 +228,7 @@ async function verifyWin7Package() {
   }
 
   verifyNativePackageFiles(unpacked)
+  await auditNativeBinaries(app)
   console.log(`Verified Win7 desktop package at ${app}`)
 }
 
@@ -190,6 +271,109 @@ function walk(dir: string): string[] {
   return result
 }
 
+async function auditNativeBinaries(app: string) {
+  const candidates = walk(app).filter((file) => /\.(exe|dll|node)$/i.test(file))
+  const entries: NativeAuditEntry[] = []
+  const failures: string[] = []
+
+  for (const file of candidates) {
+    const relativePath = path.relative(app, file).replaceAll(path.sep, '/')
+    if (!isPeFile(file)) {
+      entries.push({
+        file: relativePath,
+        format: 'non-pe',
+        riskyImports: [],
+        decision: 'not-applicable',
+        note: 'Skipped because this native file is not a Windows PE binary.'
+      })
+      continue
+    }
+
+    const imports = await readPeImports(file)
+    const riskyImports = collectWin7RiskyImports(imports)
+    const decision = nativeAuditDecisions.find((item) => relativePath.includes(item.match))
+
+    entries.push({
+      file: relativePath,
+      format: 'pe',
+      riskyImports,
+      decision: decision?.decision ?? (riskyImports.length ? 'unapproved' : 'compatible'),
+      note: decision?.note
+    })
+
+    if (riskyImports.length && !decision) {
+      failures.push(`${relativePath}: ${riskyImports.map((item) => `${item.dll}!${item.name}`).join(', ')}`)
+    }
+    if (riskyImports.length && decision?.decision === 'patched') {
+      failures.push(
+        `${relativePath}: patched native binary still has risky imports ${riskyImports
+          .map((item) => `${item.dll}!${item.name}`)
+          .join(', ')}`
+      )
+    }
+  }
+
+  const reportDir = path.resolve('dist/win7')
+  const jsonPath = path.join(reportDir, 'native-audit.json')
+  const mdPath = path.join(reportDir, 'native-audit.md')
+  writeFileSync(jsonPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2)}\n`)
+  writeFileSync(mdPath, renderNativeAuditMarkdown(entries))
+  console.log(`Wrote Win7 native audit report to ${jsonPath}`)
+
+  if (failures.length) {
+    throw new Error(`Win7 native audit failed:\n${failures.join('\n')}`)
+  }
+}
+
+function isPeFile(file: string) {
+  const bytes = readFileSync(file)
+  if (bytes.length < 0x40) return false
+  if (bytes[0] !== 0x4d || bytes[1] !== 0x5a) return false
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const peOffset = view.getUint32(0x3c, true)
+  return peOffset + 4 <= bytes.length && bytes[peOffset] === 0x50 && bytes[peOffset + 1] === 0x45
+}
+
+function collectWin7RiskyImports(imports: PeImports) {
+  const riskyImports: PeImport[] = []
+
+  for (const dll of imports.dlls) {
+    const normalized = dll.toLowerCase().replace(/\.dll$/, '')
+    if (win7UnsupportedDllPrefixes.some((prefix) => normalized.startsWith(prefix))) {
+      riskyImports.push({ dll, name: '*' })
+    }
+  }
+
+  for (const { dll, name } of imports.imports) {
+    if (win7UnsupportedFunctions.has(name)) {
+      riskyImports.push({ dll, name })
+    }
+  }
+
+  return riskyImports
+}
+
+function renderNativeAuditMarkdown(entries: NativeAuditEntry[]) {
+  const lines = ['# Win7 Native Audit', '', `Generated: ${new Date().toISOString()}`, '']
+  for (const entry of entries) {
+    lines.push(`## ${entry.file}`, '')
+    lines.push(`- Format: ${entry.format}`)
+    lines.push(`- Decision: ${entry.decision}`)
+    if (entry.note) lines.push(`- Note: ${entry.note}`)
+    if (entry.riskyImports.length) {
+      lines.push('- Risky imports:')
+      for (const item of entry.riskyImports) {
+        lines.push(`  - ${item.dll}!${item.name}`)
+      }
+    } else {
+      lines.push('- Risky imports: none')
+    }
+    lines.push('')
+  }
+  return `${lines.join('\n')}\n`
+}
+
 async function run(command: string, args: string[], env: NodeJS.ProcessEnv) {
   const exitCode = await new Promise<number>((resolve) => {
     const child = spawn(command, args, { env, shell: useShell, stdio: 'inherit' })
@@ -214,7 +398,7 @@ async function readPeVersions(file: string) {
   }
 }
 
-async function readPeImports(file: string) {
+async function readPeImports(file: string): Promise<PeImports> {
   const bytes = readFileSync(file)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const peOffset = view.getUint32(0x3c, true)
@@ -227,8 +411,9 @@ async function readPeImports(file: string) {
   const sectionTable = optionalHeader + optionalHeaderSize
   const dlls = new Set<string>()
   const functions = new Set<string>()
+  const imports: PeImport[] = []
 
-  if (importRva === 0) return { dlls, functions }
+  if (importRva === 0) return { dlls, functions, imports }
 
   const rvaToOffset = (rva: number) => {
     for (let i = 0; i < sections; i++) {
@@ -259,18 +444,21 @@ async function readPeImports(file: string) {
     const firstThunk = view.getUint32(descriptor + 16, true)
     if (originalFirstThunk === 0 && nameRva === 0 && firstThunk === 0) break
 
-    dlls.add(readString(rvaToOffset(nameRva)))
+    const dll = readString(rvaToOffset(nameRva))
+    dlls.add(dll)
     const thunkOffset = rvaToOffset(originalFirstThunk || firstThunk)
     for (let thunk = thunkOffset; thunk + 8 <= view.byteLength; thunk += 8) {
       const value = magic === 0x20b ? view.getBigUint64(thunk, true) : BigInt(view.getUint32(thunk, true))
       if (value === 0n) break
       const ordinalFlag = magic === 0x20b ? 0x8000000000000000n : 0x80000000n
       if ((value & ordinalFlag) !== 0n) continue
-      functions.add(readString(rvaToOffset(Number(value)) + 2))
+      const name = readString(rvaToOffset(Number(value)) + 2)
+      functions.add(name)
+      imports.push({ dll, name })
     }
   }
 
-  return { dlls, functions }
+  return { dlls, functions, imports }
 }
 
 process.on('exit', () => {

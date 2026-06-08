@@ -1,6 +1,6 @@
 import { loggerService } from '@logger'
 import { BaseService, Injectable, Phase, ServicePhase } from '@main/core/lifecycle'
-import { isLinux } from '@main/core/platform'
+import { isLinux, isWin7 } from '@main/core/platform'
 import { IpcChannel } from '@shared/IpcChannel'
 import type { OcrHandler, OcrProvider, OcrResult, SupportedOcrFile } from '@types'
 import { BuiltinOcrProviderIds } from '@types'
@@ -52,7 +52,9 @@ export class OcrService extends BaseService {
   private registerBuiltinProviders(): void {
     this.register(BuiltinOcrProviderIds.tesseract, tesseractService.ocr.bind(tesseractService))
 
-    if (!isLinux) {
+    if (isWin7) {
+      logger.warn('System OCR provider is disabled on Windows 7')
+    } else if (!isLinux) {
       this.register(BuiltinOcrProviderIds.system, systemOcrService.ocr.bind(systemOcrService))
     }
 

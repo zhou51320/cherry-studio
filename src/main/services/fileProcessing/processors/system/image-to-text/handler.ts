@@ -1,6 +1,5 @@
 import { loggerService } from '@logger'
-import { isLinux, isWin } from '@main/core/platform'
-import { OcrAccuracy, recognize } from '@napi-rs/system-ocr'
+import { isLinux, isWin, isWin7 } from '@main/core/platform'
 import type { FileProcessorMerged } from '@shared/data/presets/file-processing'
 import { FILE_TYPE, type FileInfo } from '@shared/file/types'
 
@@ -24,6 +23,7 @@ export const systemImageToTextHandler: FileProcessingCapabilityHandler<'image_to
           langs: context.langs
         })
 
+        const { OcrAccuracy, recognize } = await import('@napi-rs/system-ocr')
         const result = await recognize(
           context.file.path,
           OcrAccuracy.Accurate,
@@ -45,6 +45,10 @@ function prepareContext(file: FileInfo, config: FileProcessorMerged, signal?: Ab
 
   if (isLinux) {
     throw new Error('System OCR is not supported on Linux')
+  }
+  if (isWin7) {
+    logger.warn('System OCR file processor is disabled on Windows 7', { filePath: file.path, processorId: config.id })
+    throw new Error('System OCR is not supported on Windows 7')
   }
 
   if (file.type !== FILE_TYPE.IMAGE) {

@@ -1,7 +1,16 @@
+import { loggerService } from '@logger'
+import { isWin7 } from '@main/core/platform'
 import type { ImageFileMetadata } from '@types'
 import { readFile } from 'fs/promises'
 
+const logger = loggerService.withContext('OcrImageUtils')
+
 const preprocessImage = async (buffer: Buffer): Promise<Buffer> => {
+  if (isWin7) {
+    logger.warn('Skipping sharp OCR image preprocessing on Windows 7')
+    return buffer
+  }
+
   // Delayed loading: The Sharp module is only loaded when the OCR functionality is actually needed, not at app startup
   const sharp = (await import('sharp')).default
   return sharp(buffer)

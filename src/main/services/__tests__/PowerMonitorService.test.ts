@@ -13,7 +13,7 @@ const {
   mockSetWindowHandle,
   mockReleaseShutdown
 } = vi.hoisted(() => ({
-  platformMock: { isMac: true, isWin: false, isLinux: false },
+  platformMock: { isMac: true, isWin: false, isLinux: false, isWin7: false },
   mockPowerMonitorOn: vi.fn(),
   mockPowerMonitorRemoveListener: vi.fn(),
   mockWindowDestroy: vi.fn(),
@@ -82,6 +82,7 @@ describe('PowerMonitorService', () => {
     platformMock.isMac = true
     platformMock.isWin = false
     platformMock.isLinux = false
+    platformMock.isWin7 = false
   })
 
   describe('onInit - macOS/Linux', () => {
@@ -138,6 +139,18 @@ describe('PowerMonitorService', () => {
 
       await (service as any).onInit()
 
+      expect(mockSetWindowHandle).not.toHaveBeenCalled()
+      expect(mockShutdownHandlerOn).not.toHaveBeenCalled()
+      expect((service as any)._disposables).toHaveLength(0)
+    })
+
+    it('should skip Windows shutdown handler on Windows 7', async () => {
+      platformMock.isWin7 = true
+
+      const service = createService()
+      await (service as any).onInit()
+
+      expect(mockWhenReady).not.toHaveBeenCalled()
       expect(mockSetWindowHandle).not.toHaveBeenCalled()
       expect(mockShutdownHandlerOn).not.toHaveBeenCalled()
       expect((service as any)._disposables).toHaveLength(0)

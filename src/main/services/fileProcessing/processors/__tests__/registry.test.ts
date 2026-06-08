@@ -2,12 +2,18 @@ import { FILE_PROCESSOR_FEATURES } from '@shared/data/preference/preferenceTypes
 import { PRESETS_FILE_PROCESSORS } from '@shared/data/presets/file-processing'
 import { describe, expect, it, vi } from 'vitest'
 
-async function importRegistryWithPlatform(platform: { isLinux: boolean; isMac: boolean; isWin: boolean }) {
+async function importRegistryWithPlatform(platform: {
+  isLinux: boolean
+  isMac: boolean
+  isWin: boolean
+  isWin7?: boolean
+}) {
   vi.resetModules()
   vi.doMock('@main/core/platform', () => ({
     isLinux: platform.isLinux,
     isMac: platform.isMac,
-    isWin: platform.isWin
+    isWin: platform.isWin,
+    isWin7: platform.isWin7 ?? false
   }))
 
   const { processorRegistry } = await import('../registry')
@@ -50,10 +56,14 @@ describe('processorRegistry', () => {
   it.each([
     { isLinux: false, isMac: true, isWin: false, expected: true },
     { isLinux: false, isMac: false, isWin: true, expected: true },
+    { isLinux: false, isMac: false, isWin: true, isWin7: true, expected: false },
     { isLinux: true, isMac: false, isWin: false, expected: false }
-  ])('marks System OCR availability from main platform constants %#', async ({ isLinux, isMac, isWin, expected }) => {
-    const processorRegistry = await importRegistryWithPlatform({ isLinux, isMac, isWin })
+  ])(
+    'marks System OCR availability from main platform constants %#',
+    async ({ isLinux, isMac, isWin, isWin7, expected }) => {
+      const processorRegistry = await importRegistryWithPlatform({ isLinux, isMac, isWin, isWin7 })
 
-    expect(processorRegistry.system.isAvailable()).toBe(expected)
-  })
+      expect(processorRegistry.system.isAvailable()).toBe(expected)
+    }
+  )
 })

@@ -1,4 +1,4 @@
-import { isMac, isWin } from '@main/core/platform'
+import { isMac, isWin, isWin7 } from '@main/core/platform'
 
 import { doc2xDocumentToMarkdownHandler } from './doc2x/document-to-markdown/handler'
 import { mineruDocumentToMarkdownHandler } from './mineru/document-to-markdown/handler'
@@ -21,7 +21,7 @@ export const processorRegistry = {
     }
   },
   system: {
-    isAvailable: () => isMac || isWin,
+    isAvailable: () => isMac || (isWin && !isWin7),
     capabilities: {
       image_to_text: systemImageToTextHandler
     }

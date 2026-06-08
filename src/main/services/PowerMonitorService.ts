@@ -1,6 +1,6 @@
 import { loggerService } from '@logger'
 import { BaseService, Injectable, Phase, ServicePhase } from '@main/core/lifecycle'
-import { isLinux, isMac, isWin } from '@main/core/platform'
+import { isLinux, isMac, isWin, isWin7 } from '@main/core/platform'
 import { app, BrowserWindow, powerMonitor } from 'electron'
 
 const logger = loggerService.withContext('PowerMonitorService')
@@ -30,6 +30,12 @@ export class PowerMonitorService extends BaseService {
 
   protected async onInit(): Promise<void> {
     if (isWin) {
+      if (isWin7) {
+        logger.warn('Windows shutdown handler is disabled on Windows 7')
+        logger.info('PowerMonitorService initialized', { platform: process.platform })
+        return
+      }
+
       // BrowserWindow cannot be created before app is ready.
       // Background phase starts before app.whenReady(), so we must await it here.
       // This await only blocks this fire-and-forget service, not the rest of bootstrap.

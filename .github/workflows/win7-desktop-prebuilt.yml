@@ -99,6 +99,7 @@ jobs:
           name: cherry-studio-win7-prebuilt-electron
           path: |
             dist/win7/win-unpacked/**
+            dist/win7/native-audit.*
             dist/win7/prebuilt-runtime.*
             dist/win7/prebuilt-runtime-comparison.*
             dist/win7/SHA256SUMS.txt
