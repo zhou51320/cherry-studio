@@ -18,7 +18,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { loggerService } from '@logger'
-import { isMac, isWin } from '@main/core/platform'
+import { isMac, isWin, isWin7 } from '@main/core/platform'
 import { toAsarUnpackedPath } from '@main/utils'
 import type { DirectoryListOptions, FilePath } from '@shared/file/types'
 
@@ -167,6 +167,60 @@ function executeRipgrep(args: string[]): Promise<{ exitCode: number; output: str
       reject(error)
     })
   })
+}
+
+async function walkWithFilesystem(
+  resolvedPath: string,
+  options: ResolvedOptions,
+  currentDepth: number = 0
+): Promise<string[]> {
+  if (!options.recursive && currentDepth > 0) return []
+  if (options.maxDepth > 0 && currentDepth >= options.maxDepth) return []
+
+  const results: string[] = []
+  const searchPattern = options.searchPattern.toLowerCase()
+
+  try {
+    const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true })
+
+    for (const entry of entries) {
+      if (!options.includeHidden && entry.name.startsWith('.')) continue
+      if (entry.isDirectory() && EXCLUDED_DIRS.has(entry.name)) continue
+
+      const fullPath = path.join(resolvedPath, entry.name).replace(/\\/g, '/')
+      const matches =
+        options.searchPattern === '.' ||
+        entry.name.toLowerCase().includes(searchPattern) ||
+        (options.fuzzy && (isFuzzyMatch(fullPath, searchPattern) || isGreedySubstringMatch(fullPath, searchPattern)))
+
+      if (entry.isDirectory()) {
+        if (options.includeDirectories && matches) results.push(fullPath)
+        if (options.recursive && (options.maxDepth <= 0 || currentDepth + 1 < options.maxDepth)) {
+          results.push(...(await walkWithFilesystem(fullPath, options, currentDepth + 1)))
+        }
+      } else if (options.includeFiles && matches) {
+        results.push(fullPath)
+      }
+    }
+  } catch (error) {
+    logger.warn(`Failed to search directory with filesystem fallback: ${resolvedPath}`, error as Error)
+  }
+
+  return results
+}
+
+async function listDirectoryWithFilesystem(resolvedPath: string, options: ResolvedOptions): Promise<string[]> {
+  const results = await walkWithFilesystem(resolvedPath, options)
+
+  if (options.fuzzy && options.searchPattern && options.searchPattern !== '.') {
+    return results
+      .map((file) => ({ file, score: getFuzzyMatchScore(file, options.searchPattern) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, options.maxEntries)
+      .map((item) => item.file)
+  }
+
+  return results.sort((a, b) => path.basename(a).localeCompare(path.basename(b))).slice(0, options.maxEntries)
 }
 
 function buildRipgrepBaseArgs(options: ResolvedOptions, resolvedPath: string): string[] {
@@ -542,6 +596,11 @@ export async function listDirectory(dirPath: FilePath | string, options?: Direct
 
   if (!stat.isDirectory()) {
     throw new Error(`Path is not a directory: ${resolvedPath}`)
+  }
+
+  if (isWin7) {
+    logger.warn('Ripgrep is disabled on Windows 7; using filesystem search fallback')
+    return listDirectoryWithFilesystem(resolvedPath, mergedOptions)
   }
 
   if (!getRipgrepBinaryPath()) {

@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 
 import { application } from '@application'
 import { loggerService } from '@logger'
-import { isWin } from '@main/core/platform'
+import { isWin, isWin7 } from '@main/core/platform'
 import { HOME_CHERRY_DIR } from '@shared/config/constant'
 import { gte as semverGte } from 'semver'
 
@@ -31,6 +31,7 @@ function getPlatformKey(): string {
 }
 
 function isPlatformSupported(): boolean {
+  if (isWin7) return false
   return !UNSUPPORTED_PLATFORMS.has(getPlatformKey())
 }
 

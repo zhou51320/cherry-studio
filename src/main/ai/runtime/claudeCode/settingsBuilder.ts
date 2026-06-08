@@ -37,7 +37,7 @@ import { createSdkMcpServerInstance } from '@main/ai/runtime/claudeCode/createSd
 import { skillService } from '@main/ai/skills/SkillService'
 import { createClaudeAgentToolPolicySnapshot } from '@main/ai/tools/adapters/claudeCode/agentTools'
 import { application } from '@main/core/application'
-import { isLinux, isWin } from '@main/core/platform'
+import { isLinux, isWin, isWin7 } from '@main/core/platform'
 import { getProxyEnvironment } from '@main/services/proxy/nodeProxy'
 import { toAsarUnpackedPath } from '@main/utils'
 import { getPathStatus, type PathStatus } from '@main/utils/file/pathStatus'
@@ -253,6 +253,11 @@ export async function buildClaudeCodeSessionSettings(
 // ── Subsection builders ─────────────────────────────────────────────
 
 export function resolveClaudeExecutablePath(): string {
+  if (isWin7) {
+    logger.warn('Claude Code native runtime is disabled on Windows 7')
+    throw new Error('Claude Code is not supported on Windows 7')
+  }
+
   const sdkRequire = createRequire(require_.resolve('@anthropic-ai/claude-agent-sdk'))
   const extension = isWin ? '.exe' : ''
   const nativePackages = isLinux

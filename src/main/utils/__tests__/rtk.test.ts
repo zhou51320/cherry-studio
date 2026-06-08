@@ -45,7 +45,8 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('@main/core/platform', () => ({
-  isWin: false
+  isWin: false,
+  isWin7: false
 }))
 
 vi.mock('@application', () => ({

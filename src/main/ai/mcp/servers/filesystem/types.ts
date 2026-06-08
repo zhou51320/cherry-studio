@@ -1,5 +1,5 @@
 import { loggerService } from '@logger'
-import { isMac, isWin } from '@main/core/platform'
+import { isMac, isWin, isWin7 } from '@main/core/platform'
 import { toAsarUnpackedPath } from '@main/utils'
 import { spawn } from 'child_process'
 import fs from 'fs/promises'
@@ -631,6 +631,11 @@ export function getRipgrepBinaryPath(): string {
 }
 
 export async function runRipgrep(args: string[]): Promise<RipgrepResult> {
+  if (isWin7) {
+    logger.warn('Ripgrep is disabled on Windows 7')
+    return { ok: false, stdout: '', exitCode: null }
+  }
+
   const ripgrepBinaryPath = getRipgrepBinaryPath()
 
   return new Promise((resolve) => {

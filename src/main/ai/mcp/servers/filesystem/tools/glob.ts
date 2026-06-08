@@ -1,3 +1,5 @@
+import type { Dirent } from 'node:fs'
+
 import fs from 'fs/promises'
 import path from 'path'
 import * as z from 'zod'
@@ -30,6 +32,108 @@ export const globToolDefinition = {
 - If path is not specified, defaults to the base directory
 - IMPORTANT: Omit the path field for the default directory (don't use "undefined" or "null")`,
   inputSchema: z.toJSONSchema(GlobToolSchema)
+}
+
+function globToRegex(pattern: string): RegExp {
+  const normalized = pattern.replace(/\\/g, '/')
+  const escapeRegex = (value: string) => value.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  let source = ''
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i]
+    const next = normalized[i + 1]
+
+    if (char === '*' && next === '*') {
+      if (normalized[i + 2] === '/') {
+        source += '(?:.*/)?'
+        i += 2
+      } else {
+        source += '.*'
+        i++
+      }
+      continue
+    }
+
+    if (char === '*') {
+      source += '[^/]*'
+      continue
+    }
+
+    if (char === '?') {
+      source += '[^/]'
+      continue
+    }
+
+    if (char === '{') {
+      const end = normalized.indexOf('}', i + 1)
+      if (end !== -1) {
+        const alternatives = normalized
+          .slice(i + 1, end)
+          .split(',')
+          .map((item) => escapeRegex(item))
+        source += `(?:${alternatives.join('|')})`
+        i = end
+        continue
+      }
+    }
+
+    source += escapeRegex(char)
+  }
+
+  return new RegExp(`^${source}$`, 'i')
+}
+
+async function collectFilesWithFilesystem(dir: string, baseDir: string, pattern: string): Promise<FileInfo[]> {
+  const files: FileInfo[] = []
+  const matcher = globToRegex(pattern)
+  const matchRelativePath = pattern.includes('/') || pattern.includes('\\')
+
+  async function visit(currentDir: string): Promise<void> {
+    if (files.length >= MAX_FILES_LIMIT) return
+
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (files.length >= MAX_FILES_LIMIT) break
+      if (entry.name.startsWith('.') || ['node_modules', 'dist', 'build', '__pycache__', '.git'].includes(entry.name)) {
+        continue
+      }
+
+      const fullPath = path.join(currentDir, entry.name)
+      try {
+        await validatePath(fullPath, baseDir)
+      } catch {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        await visit(fullPath)
+        continue
+      }
+
+      if (!entry.isFile()) continue
+
+      const normalizedRelative = path.relative(dir, fullPath).replace(/\\/g, '/')
+      const candidate = matchRelativePath ? normalizedRelative : entry.name
+      if (!matcher.test(candidate)) continue
+
+      const stats = await fs.stat(fullPath)
+      files.push({
+        path: fullPath,
+        type: 'file',
+        size: stats.size,
+        modified: stats.mtime
+      })
+    }
+  }
+
+  await visit(dir)
+  return files
 }
 
 // Handler implementation
@@ -119,6 +223,9 @@ export async function handleGlobTool(args: unknown, baseDir: string) {
         logger.debug('Failed to stat or validate file from ripgrep output, skipping', { file: absolutePath, error })
       }
     }
+  } else {
+    logger.warn('Ripgrep unavailable for glob search; using filesystem fallback')
+    files.push(...(await collectFilesWithFilesystem(validPath, baseDir, pattern)))
   }
 
   // Sort by modification time (newest first)

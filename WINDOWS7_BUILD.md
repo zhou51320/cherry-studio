@@ -94,6 +94,9 @@ dist/win7/native-audit.md
 | `@napi-rs/system-ocr` | Disabled on Win7 | System OCR is not registered on Windows 7 and the native module is dynamically imported only when the feature is used. |
 | `@napi-rs/canvas` | Known optional risk | Not required for startup. The native audit records the package until a compatible replacement or Win7-specific disable path is chosen. |
 | `sharp` / `libvips` | Disabled on Win7 OCR preprocessing paths | OCR image utilities skip Sharp-backed preprocessing on Windows 7 before the native module is imported. |
+| `@anthropic-ai/claude-agent-sdk` / Claude Code | Disabled on Win7 | The Claude Code native runtime is rejected before `claude.exe` is launched. |
+| `@cherrystudio/ripgrep` | Disabled on Win7 with fallback | Bundled `rg.exe` is not launched on Windows 7. File tree search and filesystem MCP glob/grep use JS fallback paths where available. |
+| `rtk` | Disabled on Win7 | The bundled `rtk.exe` is marked unsupported before version checks or rewrite calls execute it. |
 | `selection-hook` | Lazy-loaded | Win7 packaging keeps the `win32-x64` prebuild and unpacks it for runtime loading. |
 | `@paymoapp/electron-shutdown-handler` | Disabled on Win7 | Windows shutdown hook loading is skipped on Windows 7. Missing native file is a warning unless `CHERRY_STUDIO_WIN7_STRICT_NATIVE=1`. |
 

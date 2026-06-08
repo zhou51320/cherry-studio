@@ -118,6 +118,31 @@ const nativeAuditDecisions: Win7NativeDecision[] = [
     note: 'Sharp-backed OCR image preprocessing is skipped on Windows 7 before the native module is imported.'
   },
   {
+    match: 'node_modules/@img/sharp-win32-x64/lib/libvips-42.dll',
+    decision: 'disabled-on-win7',
+    note: 'Sharp/libvips-backed OCR image preprocessing is skipped on Windows 7 before the native DLL is loaded.'
+  },
+  {
+    match: 'node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe',
+    decision: 'disabled-on-win7',
+    note: 'Claude Code native runtime is rejected on Windows 7 before the bundled executable is launched.'
+  },
+  {
+    match: 'node_modules/@cherrystudio/ripgrep/vendor/ripgrep/x64-win32/rg.exe',
+    decision: 'disabled-on-win7',
+    note: 'Win7 runtime avoids launching bundled ripgrep and uses filesystem fallbacks for supported search paths.'
+  },
+  {
+    match: 'node_modules/@cherrystudio/ripgrep/vendor/ripgrep/arm64-win32/rg.exe',
+    decision: 'disabled-on-win7',
+    note: 'Non-target bundled ripgrep binary is not launched on Windows 7.'
+  },
+  {
+    match: 'resources/binaries/win32-x64/rtk.exe',
+    decision: 'disabled-on-win7',
+    note: 'rtk is marked unsupported on Windows 7 before the bundled executable is launched.'
+  },
+  {
     match: 'node_modules/selection-hook/prebuilds/win32-x64/selection-hook.node',
     decision: 'lazy-loaded',
     note: 'Selection hook remains lazy-loaded and is not required for startup.'
